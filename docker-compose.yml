@@ -1,0 +1,46 @@
+# Ejecuta toda la tienda en tu computador:  docker compose up --build
+# Luego abre http://localhost:8080
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  catalog:
+    build: ./catalog-service
+    environment: &common
+      JWT_SECRET: cambia-este-secreto-en-produccion
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: rootpass
+    depends_on:
+      db: { condition: service_healthy }
+
+  users:
+    build: ./users-service
+    environment:
+      <<: *common
+      ADMIN_EMAIL: admin@robotica.local
+      ADMIN_PASSWORD: Admin1234!
+    depends_on:
+      db: { condition: service_healthy }
+
+  orders:
+    build: ./orders-service
+    environment:
+      <<: *common
+      CATALOG_URL: http://catalog:8080
+    depends_on:
+      db: { condition: service_healthy }
+      catalog: { condition: service_started }
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on: [catalog, users, orders]

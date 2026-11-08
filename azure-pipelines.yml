@@ -1,0 +1,66 @@
+# Pipeline de Azure DevOps: construye las 4 imágenes, las sube a Azure Container Registry
+# y actualiza las aplicaciones de Azure Container Apps.
+#
+# Antes de usarlo, en Azure DevOps (Project settings > Service connections) crea:
+#   1) "acr-connection"   -> tipo Docker Registry > Azure Container Registry
+#   2) "azure-connection" -> tipo Azure Resource Manager (la suscripción Azure for Students)
+# y cambia acrName por el nombre real de tu registro.
+
+trigger:
+  branches:
+    include: [main]
+
+variables:
+  acrName: roboticaacr            # <-- CAMBIA: nombre de tu Azure Container Registry (sin .azurecr.io)
+  acrConnection: acr-connection
+  azureConnection: azure-connection
+  resourceGroup: robotica-rg
+  tag: $(Build.BuildId)
+
+pool:
+  vmImage: ubuntu-latest          # si tu organización no tiene agentes gratuitos, usa un agente propio
+
+stages:
+  - stage: Build
+    displayName: Construir y subir imágenes
+    jobs:
+      - job: Images
+        strategy:
+          matrix:
+            catalog:  { repo: catalog,  context: catalog-service }
+            users:    { repo: users,    context: users-service }
+            orders:   { repo: orders,   context: orders-service }
+            frontend: { repo: frontend, context: frontend }
+        steps:
+          - task: Docker@2
+            displayName: Build y push de $(repo)
+            inputs:
+              command: buildAndPush
+              containerRegistry: $(acrConnection)
+              repository: $(repo)
+              dockerfile: $(context)/Dockerfile
+              buildContext: $(context)
+              tags: |
+                $(tag)
+                latest
+
+  - stage: Deploy
+    displayName: Desplegar en Container Apps
+    dependsOn: Build
+    jobs:
+      - job: Update
+        steps:
+          - task: AzureCLI@2
+            displayName: Actualizar las 4 aplicaciones
+            inputs:
+              azureSubscription: $(azureConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az extension add --name containerapp --upgrade --only-show-errors
+                for pair in catalog-service:catalog users-service:users orders-service:orders frontend:frontend; do
+                  app="${pair%%:*}"; repo="${pair##*:}"
+                  echo "Actualizando $app con $repo:$(tag)"
+                  az containerapp update --name "$app" --resource-group "$(resourceGroup)" \
+                    --image "$(acrName).azurecr.io/$repo:$(tag)"
+                done

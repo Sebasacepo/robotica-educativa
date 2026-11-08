@@ -1,0 +1,43 @@
+# Puerta de entrada: sirve la tienda y reenvía /api/* a cada microservicio.
+# Las variables CATALOG_URL, USERS_URL y ORDERS_URL se reemplazan al iniciar el contenedor.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Permite usar upstreams HTTPS (Azure Container Apps) con el nombre correcto (SNI).
+    proxy_ssl_server_name on;
+
+    # Salud del propio gateway
+    location = /healthz { access_log off; return 200 "ok\n"; add_header Content-Type text/plain; }
+
+    location /api/catalog/ {
+        proxy_pass ${CATALOG_URL};
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
+    location /api/users/ {
+        proxy_pass ${USERS_URL};
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
+    location /api/orders/ {
+        proxy_pass ${ORDERS_URL};
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
+
+    # Cualquier otra ruta /api/ no existe: responde 404 en JSON y no la tienda.
+    location /api/ {
+        default_type application/json;
+        return 404 '{"error":"Ruta no encontrada"}';
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
