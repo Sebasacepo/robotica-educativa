@@ -1,0 +1,34 @@
+name: Construir imagenes
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        svc: [catalog-service, users-service, orders-service, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Iniciar sesion en ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Construir y subir
+        env:
+          SVC: ${{ matrix.svc }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          name="robotica-${SVC%-service}"
+          img="ghcr.io/${owner}/${name}"
+          docker build -t "${img}:v1" -t "${img}:${GITHUB_SHA::7}" "./${SVC}"
+          docker push "${img}:v1"
+          docker push "${img}:${GITHUB_SHA::7}"
+          echo "Imagen publicada: ${img}:v1"
